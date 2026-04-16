@@ -5,4 +5,3 @@ aiohttp==3.8.5
 gunicorn==21.2.0
 websockets==11.0.3
 python-dotenv==1.0.0
-requests==2.31.0
