@@ -6,3 +6,4 @@ websockets==11.0.3
 python-dotenv==1.0.0
 aiohttp
 numpy
+flask[async]==2.3.3
