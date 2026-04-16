@@ -1,0 +1,8 @@
+flask==2.3.3
+flask-cors==4.0.0
+aiohttp==3.8.5
+gunicorn==21.2.0
+websockets==11.0.3
+python-dotenv==1.0.0
+requests==2.31.0
+git+https://github.com/cleitonleonel/pyquotex.git@main
