@@ -1,6 +1,6 @@
 """
 PREMIUM SIGNAL GENERATOR - RENDER DEPLOYMENT
-Fixed: async support, session paths, single worker
+Supports both SSID token login and email/password login
 """
 
 from flask import Flask, render_template, request, jsonify, session
@@ -20,37 +20,28 @@ CORS(app)
 app.config['JSON_SORT_KEYS'] = False
 app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False
 
-# ─────────────────────────────────────────────────────────────
-# IMPORTANT: Tell pyquotex where to store its session files.
-# On Render free tier, /tmp is the only writable directory.
-# ─────────────────────────────────────────────────────────────
+# /tmp is the only writable folder on Render free tier
 ROOT_PATH = "/tmp/quotex"
 os.makedirs(ROOT_PATH, exist_ok=True)
 os.makedirs(os.path.join(ROOT_PATH, "browser"), exist_ok=True)
 
 # Global state
 quotex_client = None
-analyzer = None
-is_connected = False
-cached_pairs = []
+analyzer      = None
+is_connected  = False
+cached_pairs  = []
 last_cache_time = 0
 
 
-# ─────────────────────────────────────────────────────────────
-# ASYNC HELPER
-# gunicorn sync workers can't use 'await' directly.
-# This helper runs async functions safely from sync routes.
-# ─────────────────────────────────────────────────────────────
 def run_async(coro):
+    """Run an async coroutine safely from a sync gunicorn worker"""
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
             import concurrent.futures
             with concurrent.futures.ThreadPoolExecutor() as pool:
-                future = pool.submit(asyncio.run, coro)
-                return future.result(timeout=60)
-        else:
-            return loop.run_until_complete(coro)
+                return pool.submit(asyncio.run, coro).result(timeout=60)
+        return loop.run_until_complete(coro)
     except RuntimeError:
         return asyncio.run(coro)
 
@@ -58,15 +49,13 @@ def run_async(coro):
 @app.after_request
 def add_security_headers(response):
     response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.headers['X-Frame-Options'] = 'SAMEORIGIN'
-    response.headers['X-XSS-Protection'] = '1; mode=block'
+    response.headers['X-Frame-Options']        = 'SAMEORIGIN'
+    response.headers['X-XSS-Protection']       = '1; mode=block'
     return response
-
 
 @app.errorhandler(404)
 def not_found(e):
     return jsonify({"error": "Endpoint not found"}), 404
-
 
 @app.errorhandler(500)
 def server_error(e):
@@ -76,10 +65,10 @@ def server_error(e):
 # ─────────────────────────────────────────────────────────────
 # ROUTES
 # ─────────────────────────────────────────────────────────────
+
 @app.route('/admin')
 def admin_panel():
     return render_template('admin.html')
-
 
 @app.route('/')
 def dashboard():
@@ -90,37 +79,59 @@ def dashboard():
 
 @app.route('/api/admin/login', methods=['POST'])
 def admin_login():
+    """
+    Supports two login modes:
+      1. SSID token  → body: { "ssid": "<token>" }
+      2. Email/pass  → body: { "email": "...", "password": "..." }
+    """
     global quotex_client, analyzer, is_connected
 
-    data = request.json
-    email = data.get('email', '').strip()
+    data     = request.json or {}
+    ssid     = data.get('ssid', '').strip()
+    email    = data.get('email', '').strip()
     password = data.get('password', '').strip()
 
-    if not email or not password:
-        return jsonify({"success": False, "message": "Email and password required"})
+    if not ssid and not (email and password):
+        return jsonify({"success": False, "message": "Provide either token or email+password"})
 
     async def do_connect():
         global quotex_client, analyzer, is_connected
         try:
-            print(f"Connecting to Quotex as {email}...")
-            client = Quotex(
-                email=email,
-                password=password,
-                lang="en",
-                root_path=ROOT_PATH
-            )
+            if ssid:
+                # ── SSID login: inject token directly, skip browser auth ──
+                print("Connecting via SSID token...")
+                client = Quotex(
+                    email="",
+                    password="",
+                    lang="en",
+                    root_path=ROOT_PATH
+                )
+                # Write the token into session data so pyquotex uses it directly
+                client.session_data = {"token": ssid}
+            else:
+                # ── Email/password login ──
+                print(f"Connecting via email/password as {email}...")
+                client = Quotex(
+                    email=email,
+                    password=password,
+                    lang="en",
+                    root_path=ROOT_PATH
+                )
+
             check, reason = await client.connect()
+
             if check:
                 quotex_client = client
-                analyzer = MarketAnalyzer(quotex_client)
-                is_connected = True
+                analyzer      = MarketAnalyzer(quotex_client)
+                is_connected  = True
                 print("Connected successfully!")
                 return True, "Connected"
             else:
                 print(f"Connection failed: {reason}")
                 return False, str(reason)
+
         except Exception as e:
-            print(f"Exception: {e}")
+            print(f"Exception during connect: {e}")
             traceback.print_exc()
             return False, str(e)
 
@@ -129,8 +140,7 @@ def admin_login():
         if success:
             session['admin'] = True
             return jsonify({"success": True, "message": "Connected"})
-        else:
-            return jsonify({"success": False, "message": message})
+        return jsonify({"success": False, "message": message})
     except Exception as e:
         traceback.print_exc()
         return jsonify({"success": False, "message": f"Server error: {str(e)}"})
@@ -144,12 +154,16 @@ def admin_status():
 @app.route('/api/admin/logout', methods=['POST'])
 def admin_logout():
     global quotex_client, analyzer, is_connected
-    is_connected = False
+    is_connected  = False
     quotex_client = None
-    analyzer = None
+    analyzer      = None
     session.clear()
     return jsonify({"success": True})
 
+
+# ─────────────────────────────────────────────────────────────
+# TRADING PAIRS
+# ─────────────────────────────────────────────────────────────
 
 @app.route('/api/pairs', methods=['GET'])
 def get_pairs():
@@ -162,77 +176,76 @@ def get_pairs():
         return jsonify({"pairs": cached_pairs})
 
     async def fetch_pairs():
-        all_assets = await quotex_client.get_all_assets()
+        all_assets   = await quotex_client.get_all_assets()
         payment_data = quotex_client.get_payment()
         pairs = []
 
-        for asset_code, asset_info in all_assets.items():
+        for asset_code, _ in all_assets.items():
             display_name = None
-            payout = 0
-            is_open = False
+            payout   = 0
+            is_open  = False
 
             for pay_name, pay_info in payment_data.items():
                 if not isinstance(pay_info, dict):
                     continue
-                pay_name_clean = pay_name.replace('(OTC)', '').replace(' ', '').replace('/', '').upper()
-                asset_code_clean = str(asset_code).replace('_otc', '').replace('_OTC', '').upper()
-
-                if pay_name_clean in asset_code_clean or asset_code_clean in pay_name_clean:
+                pay_clean   = pay_name.replace('(OTC)','').replace(' ','').replace('/','').upper()
+                asset_clean = str(asset_code).replace('_otc','').replace('_OTC','').upper()
+                if pay_clean in asset_clean or asset_clean in pay_clean:
                     display_name = pay_name
-                    is_open = pay_info.get('open', False)
-                    turbo_payment = pay_info.get('turbo_payment', 0)
-                    if turbo_payment and turbo_payment > 0:
-                        payout = float(turbo_payment)
+                    is_open      = pay_info.get('open', False)
+                    turbo        = pay_info.get('turbo_payment', 0)
+                    if turbo and turbo > 0:
+                        payout = float(turbo)
                     else:
-                        profit_data = pay_info.get('profit', {})
-                        if isinstance(profit_data, dict):
-                            payout = float(profit_data.get('1M', 0))
+                        profit = pay_info.get('profit', {})
+                        if isinstance(profit, dict):
+                            payout = float(profit.get('1M', 0))
                     break
 
             if not display_name:
                 display_name = str(asset_code)
 
-            is_otc = '(OTC)' in display_name or '_otc' in str(asset_code).lower()
-            asset_upper = str(asset_code).upper()
-            display_upper = display_name.upper()
-            category = "Currency"
+            is_otc       = '(OTC)' in display_name or '_otc' in str(asset_code).lower()
+            asset_upper  = str(asset_code).upper()
+            disp_upper   = display_name.upper()
+            category     = "Currency"
 
-            if any(x in asset_upper or x in display_upper for x in [
+            if any(x in asset_upper or x in disp_upper for x in [
                 'BTC','ETH','LTC','XRP','DOGE','ADA','DOT','LINK','UNI',
                 'SOL','MATIC','SHIB','AVAX','ATOM','CHAIN','TON','APT','COSMOS']):
                 category = "Crypto"
-            elif any(x in asset_upper or x in display_upper for x in [
+            elif any(x in asset_upper or x in disp_upper for x in [
                 'GOLD','SILVER','OIL','GAS','CRUDE','BRENT','COPPER','PLATINUM','NATURAL']):
                 category = "Commodities"
-            elif any(x in asset_upper or x in display_upper for x in [
+            elif any(x in asset_upper or x in disp_upper for x in [
                 'AAPL','GOOGL','GOOGLE','TSLA','TESLA','MSFT','MICROSOFT','AMZN',
                 'AMAZON','META','FACEBOOK','NFLX','NETFLIX','NVDA','NVIDIA',
                 'AMD','INTEL','COCA','MCDONALDS','MCD','NIKE','DISNEY']):
                 category = "Stocks"
 
             pairs.append({
-                "code": str(asset_code),
-                "name": display_name,
-                "payout": payout,
-                "is_open": is_open,
-                "is_otc": is_otc,
-                "category": category
+                "code": str(asset_code), "name": display_name,
+                "payout": payout, "is_open": is_open,
+                "is_otc": is_otc, "category": category
             })
 
         pairs.sort(key=lambda x: x['payout'], reverse=True)
         return pairs
 
     try:
-        pairs = run_async(fetch_pairs())
-        cached_pairs = pairs
+        pairs           = run_async(fetch_pairs())
+        cached_pairs    = pairs
         last_cache_time = time.time()
         print(f"Loaded {len(pairs)} pairs")
         return jsonify({"pairs": pairs})
     except Exception as e:
-        print(f"Error getting pairs: {e}")
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
+
+# ─────────────────────────────────────────────────────────────
+# ANALYSIS
+# ─────────────────────────────────────────────────────────────
 
 @app.route('/api/analyze/<path:asset_identifier>', methods=['GET'])
 def analyze_asset(asset_identifier):
@@ -256,14 +269,13 @@ def analyze_asset(asset_identifier):
         print("Analysis complete")
         return jsonify(analysis)
     except Exception as e:
-        print(f"Analysis error: {e}")
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
 if __name__ == '__main__':
-    print("=" * 60)
+    print("="*60)
     print("PREMIUM SIGNAL GENERATOR")
-    print("Admin : http://localhost:5000/admin")
-    print("=" * 60)
+    print("Admin: http://localhost:5000/admin")
+    print("="*60)
     app.run(host='0.0.0.0', port=5000, debug=False)
