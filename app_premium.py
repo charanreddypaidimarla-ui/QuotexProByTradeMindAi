@@ -1,6 +1,5 @@
 """
 PREMIUM SIGNAL GENERATOR - RENDER DEPLOYMENT
-Supports both SSID token login and email/password login
 """
 
 from flask import Flask, render_template, request, jsonify, session
@@ -20,21 +19,27 @@ CORS(app)
 app.config['JSON_SORT_KEYS'] = False
 app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False
 
-# /tmp is the only writable folder on Render free tier
+# Writable path on Render for pyquotex session files
 ROOT_PATH = "/tmp/quotex"
 os.makedirs(ROOT_PATH, exist_ok=True)
 os.makedirs(os.path.join(ROOT_PATH, "browser"), exist_ok=True)
 
+# Write config.ini so pyquotex NEVER calls input() asking for credentials
+SETTINGS_PATH = os.path.join(ROOT_PATH, "settings")
+os.makedirs(SETTINGS_PATH, exist_ok=True)
+with open(os.path.join(SETTINGS_PATH, "config.ini"), "w") as _f:
+    _f.write("[settings]\nemail=placeholder@email.com\npassword=placeholder\n")
+
 # Global state
-quotex_client = None
-analyzer      = None
-is_connected  = False
-cached_pairs  = []
+quotex_client  = None
+analyzer       = None
+is_connected   = False
+cached_pairs   = []
 last_cache_time = 0
 
 
 def run_async(coro):
-    """Run an async coroutine safely from a sync gunicorn worker"""
+    """Run async coroutine from sync gunicorn worker"""
     try:
         loop = asyncio.get_event_loop()
         if loop.is_running():
@@ -70,6 +75,7 @@ def server_error(e):
 def admin_panel():
     return render_template('admin.html')
 
+
 @app.route('/')
 def dashboard():
     if not is_connected:
@@ -79,11 +85,6 @@ def dashboard():
 
 @app.route('/api/admin/login', methods=['POST'])
 def admin_login():
-    """
-    Supports two login modes:
-      1. SSID token  → body: { "ssid": "<token>" }
-      2. Email/pass  → body: { "email": "...", "password": "..." }
-    """
     global quotex_client, analyzer, is_connected
 
     data     = request.json or {}
@@ -92,25 +93,25 @@ def admin_login():
     password = data.get('password', '').strip()
 
     if not ssid and not (email and password):
-        return jsonify({"success": False, "message": "Provide either token or email+password"})
+        return jsonify({"success": False, "message": "Provide token or email+password"})
 
     async def do_connect():
         global quotex_client, analyzer, is_connected
         try:
             if ssid:
-                # ── SSID login: inject token directly, skip browser auth ──
                 print("Connecting via SSID token...")
+                # MUST pass non-empty email+password to prevent pyquotex
+                # from calling input() via credentials() in config.py
                 client = Quotex(
-                    email="",
-                    password="",
+                    email="placeholder@email.com",
+                    password="placeholder",
                     lang="en",
                     root_path=ROOT_PATH
                 )
-                # Write the token into session data so pyquotex uses it directly
+                # Inject the real session token directly — skips browser login
                 client.session_data = {"token": ssid}
             else:
-                # ── Email/password login ──
-                print(f"Connecting via email/password as {email}...")
+                print(f"Connecting via email/password...")
                 client = Quotex(
                     email=email,
                     password=password,
@@ -182,8 +183,8 @@ def get_pairs():
 
         for asset_code, _ in all_assets.items():
             display_name = None
-            payout   = 0
-            is_open  = False
+            payout  = 0
+            is_open = False
 
             for pay_name, pay_info in payment_data.items():
                 if not isinstance(pay_info, dict):
@@ -205,19 +206,19 @@ def get_pairs():
             if not display_name:
                 display_name = str(asset_code)
 
-            is_otc       = '(OTC)' in display_name or '_otc' in str(asset_code).lower()
-            asset_upper  = str(asset_code).upper()
-            disp_upper   = display_name.upper()
-            category     = "Currency"
+            is_otc     = '(OTC)' in display_name or '_otc' in str(asset_code).lower()
+            a_up       = str(asset_code).upper()
+            d_up       = display_name.upper()
+            category   = "Currency"
 
-            if any(x in asset_upper or x in disp_upper for x in [
+            if any(x in a_up or x in d_up for x in [
                 'BTC','ETH','LTC','XRP','DOGE','ADA','DOT','LINK','UNI',
                 'SOL','MATIC','SHIB','AVAX','ATOM','CHAIN','TON','APT','COSMOS']):
                 category = "Crypto"
-            elif any(x in asset_upper or x in disp_upper for x in [
+            elif any(x in a_up or x in d_up for x in [
                 'GOLD','SILVER','OIL','GAS','CRUDE','BRENT','COPPER','PLATINUM','NATURAL']):
                 category = "Commodities"
-            elif any(x in asset_upper or x in disp_upper for x in [
+            elif any(x in a_up or x in d_up for x in [
                 'AAPL','GOOGL','GOOGLE','TSLA','TESLA','MSFT','MICROSOFT','AMZN',
                 'AMAZON','META','FACEBOOK','NFLX','NETFLIX','NVDA','NVIDIA',
                 'AMD','INTEL','COCA','MCDONALDS','MCD','NIKE','DISNEY']):
