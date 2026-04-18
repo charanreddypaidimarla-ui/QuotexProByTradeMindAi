@@ -53,9 +53,10 @@ def dashboard():
     if not is_connected:
         return render_template('maintenance.html')
     return render_template('user_dashboard.html')
+
 @app.route('/api/admin/login', methods=['POST'])
 async def admin_login():
-    """Admin: Connect to Quotex using saved session"""
+    """Admin: Connect to Quotex"""
     global quotex_client, analyzer, is_connected
     
     data = request.json
@@ -63,18 +64,8 @@ async def admin_login():
     password = data.get('password')
     
     try:
-        print(f"Connecting to Quotex with saved session...")
-        
-        # Create client with dummy credentials (session will override)
+        print(f"Connecting to Quotex...")
         quotex_client = Quotex(email=email, password=password, lang="en")
-        
-        # Hardcoded session values from your session.json
-        quotex_client.cookies = "laravel_session=eyJpdiI6Inp5U0lxL3JqbXdHdUNseHMzOEpJdGc9PSIsInZhbHVlIjoiQ1Z2R1pXMVlNQmJERXdiZlowKzJjTkE5Z1hDc095cU9nTExIYVg5NTFEeC8zTkJQMHVYMVBlbFVqUlY5UXllNlY4MEViZHN0UmVMSkpsNDFPcm56d2ZqZ0RYenlubndYc0w3T3B3Yys5dW03R2JGR2FGQUk4MlkzVVJvamVybDgiLCJtYWMiOiI0MGJjMTUwNjlkYjYwZTliNTIzNGM4ZjhjYTE5YjVlYzIyYTA4YjUwNzVjYjY4OGUyOTgxNGQ1MzQwMDMwN2E3IiwidGFnIjoiIn0%3D; lang=en; remember_web_59ba36addc2b2f9401580f014c7f58ea4e30989d=eyJpdiI6IjYvM0Fqa3lrZjh3UXdoQitpaVhzQ0E9PSIsInZhbHVlIjoiVm02Titxb2x0K0wwS3R4S2trTDd6MVQyeGRrZCtlUENHMlEvUUl2QUNoL2lFZjF0Uk5Cem9OMHZMbVJLeFFGNi8rbDQrUEU0QW00czFIQ1VwK2pKL0ZBcVA0akZrQi9VZ0k0QnkwT21PR3VQZUtMOTZWUmZUc0sxZGtmU2x5c1BmTmRQWEQrWU9ISmxXRFdOOGNEQW5hQVdaeC9qdGUxUnZFbE1nemY0TWU5ZytUNTNtZXFPeG9UeHF5Y3ZUbXpTUWt1dWJ6WTE5SlBJRVZ6ZjFGRWdtWEtoVHNHRE1pYS9NcWZSaUNBekVEUHV0T0ExbEl3N3VBQXhiQXZlcmtybiIsIm1hYyI6IjdiYzM1OWFmMGQxOGEyMmRmMTEwMzI2YmY5YzdkMzZkNmM0ZDA0MjkwNjYzODVkY2Y4MTk5ZTllOTkyZTNmZWIiLCJ0YWciOiIifQ%3D%3D; last_trade=eyJpdiI6IlFtRmc1c254VDhuRlUxUW0rR0d6ZlE9PSIsInZhbHVlIjoiMFhWZ2t2SDNNS2NMeTN1WTlJWEcwWmpsWkxEUHRxandKZ1pwUDRpTlplYjFLRE81UnBObmlFZTJsekhCQ0FyNCIsIm1hYyI6ImNmYzY5N2I3YjM1YjA4MWY4OGNlMGFiZDgzODJkYjY4YTRhZjIyOGNkZjU2Y2ZlZTMzY2U0YzA2Y2I4YTJjYTEiLCJ0YWciOiIifQ%3D%3D; __cf_bm=7xZalnv7MYn.br0cctLOVGRCbY7q5DH8P0oA8rL2LnE-1776328104.1192274-1.0.1.1-PXdSUn6IC9y0zkub_1mQiE0BTcssTxgSFhO2idANQ7c5mfI7BZ1g9GnnQqQOYtibrlsDana7pDYH6RA_w9ufewJGc2_jBtx.sC_kURkRdkFYz6fKCSLfHmu_cxa7g37p; _cfuvid=gwt0IQ0sbKeVGAmq27cThXW_2uyFe5QvzJsAcOvvX.4-1776328104.1192274-1.0.1.1-IOGBZ.gW4JNyUQZwhDJKT_A9umZc7l544vnggJfEClk; __vid_l3=d28edfd9-b007-4b6b-a4eb-b107eb4ab82a"
-        quotex_client.token = "lCnrYb6xDDc4tX4NSJbJoUO798BeaxI5EUdMBXoI"
-        quotex_client.user_agent = "Mozilla/5.0 (X11; Ubuntu; Linux x86_64; rv:109.0) Gecko/20100101 Firefox/119.0"
-        
-        print("✅ Session data set")
-        
         check, reason = await quotex_client.connect()
         
         if check:
@@ -91,6 +82,7 @@ async def admin_login():
         print(f"❌ Error: {str(e)}")
         traceback.print_exc()
         return jsonify({"success": False, "message": str(e)})
+
 @app.route('/api/admin/status', methods=['GET'])
 def admin_status():
     """Check connection status"""
