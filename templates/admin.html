@@ -5,12 +5,8 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Panel - Signal Generator</title>
     <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-        }
-        
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
         body {
             font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', 'Segoe UI', sans-serif;
             background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%);
@@ -20,264 +16,271 @@
             justify-content: center;
             padding: 20px;
         }
-        
+
         .admin-container {
-            background: rgba(255, 255, 255, 0.95);
+            background: rgba(255,255,255,0.97);
             backdrop-filter: blur(20px);
-            -webkit-backdrop-filter: blur(20px);
             border-radius: 24px;
-            padding: 48px;
-            max-width: 450px;
+            padding: 40px;
+            max-width: 460px;
             width: 100%;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
-            border: 1px solid rgba(255, 255, 255, 0.2);
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
         }
-        
-        .logo {
-            text-align: center;
-            margin-bottom: 32px;
-        }
-        
+
+        .logo { text-align: center; margin-bottom: 24px; }
         .logo h1 {
-            font-size: 32px;
-            font-weight: 700;
+            font-size: 28px; font-weight: 700;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            -webkit-background-clip: text;
-            -webkit-text-fill-color: transparent;
-            margin-bottom: 8px;
+            -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+            margin-bottom: 6px;
         }
-        
-        .logo p {
-            color: #6b7280;
-            font-size: 14px;
-        }
-        
+        .logo p { color: #6b7280; font-size: 13px; }
+
+        .status-row { text-align: center; margin-bottom: 20px; }
         .status-badge {
-            display: inline-flex;
-            align-items: center;
-            gap: 8px;
-            padding: 8px 16px;
-            border-radius: 20px;
-            font-size: 13px;
-            font-weight: 500;
-            margin-bottom: 24px;
+            display: inline-flex; align-items: center; gap: 8px;
+            padding: 7px 16px; border-radius: 20px; font-size: 13px; font-weight: 500;
         }
-        
-        .status-badge.offline {
-            background: rgba(239, 68, 68, 0.1);
-            color: #dc2626;
-        }
-        
-        .status-badge.online {
-            background: rgba(34, 197, 94, 0.1);
-            color: #16a34a;
-        }
-        
+        .status-badge.offline { background: rgba(239,68,68,0.1); color: #dc2626; }
+        .status-badge.online  { background: rgba(34,197,94,0.1);  color: #16a34a; }
         .status-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: currentColor;
+            width: 8px; height: 8px; border-radius: 50%; background: currentColor;
             animation: pulse 2s infinite;
         }
-        
-        @keyframes pulse {
-            0%, 100% { opacity: 1; }
-            50% { opacity: 0.5; }
+        @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+        /* ── TABS ── */
+        .tabs {
+            display: flex; border-radius: 12px; overflow: hidden;
+            border: 1.5px solid #e5e7eb; margin-bottom: 24px;
         }
-        
-        .input-group {
-            margin-bottom: 20px;
+        .tab {
+            flex: 1; padding: 10px; text-align: center; cursor: pointer;
+            font-size: 13px; font-weight: 600; color: #6b7280;
+            background: #f9fafb; transition: all 0.2s; border: none;
         }
-        
-        .input-group label {
-            display: block;
-            margin-bottom: 8px;
-            color: #374151;
-            font-size: 14px;
-            font-weight: 500;
+        .tab.active { background: linear-gradient(135deg,#667eea,#764ba2); color: white; }
+
+        /* ── PANELS ── */
+        .panel { display: none; }
+        .panel.active { display: block; }
+
+        .input-group { margin-bottom: 18px; }
+        .input-group label { display: block; margin-bottom: 7px; color: #374151; font-size: 13px; font-weight: 500; }
+        .input-group input,
+        .input-group textarea {
+            width: 100%; padding: 13px 15px;
+            background: #f9fafb; border: 1.5px solid #e5e7eb;
+            border-radius: 12px; font-size: 14px; color: #111827;
+            transition: all 0.2s; font-family: inherit;
         }
-        
-        .input-group input {
-            width: 100%;
-            padding: 14px 16px;
-            background: #f9fafb;
-            border: 1.5px solid #e5e7eb;
-            border-radius: 12px;
-            font-size: 15px;
-            color: #111827;
-            transition: all 0.2s;
+        .input-group textarea { resize: vertical; min-height: 90px; font-size: 12px; }
+        .input-group input:focus, .input-group textarea:focus {
+            outline: none; border-color: #667eea; background: white;
         }
-        
-        .input-group input:focus {
-            outline: none;
-            border-color: #667eea;
-            background: white;
+
+        .hint {
+            background: #f0f4ff; border: 1px solid #c7d2fe;
+            border-radius: 10px; padding: 12px 14px;
+            font-size: 12px; color: #4338ca; margin-bottom: 18px;
+            line-height: 1.6;
         }
-        
+        .hint strong { display: block; margin-bottom: 4px; }
+        .hint code {
+            background: #e0e7ff; border-radius: 4px;
+            padding: 1px 5px; font-family: monospace;
+        }
+
         .btn {
-            width: 100%;
-            padding: 14px;
+            width: 100%; padding: 14px;
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            border: none;
-            border-radius: 12px;
-            color: white;
-            font-size: 16px;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s;
+            border: none; border-radius: 12px; color: white;
+            font-size: 15px; font-weight: 600; cursor: pointer; transition: all 0.3s;
         }
-        
-        .btn:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 25px rgba(102, 126, 234, 0.3);
-        }
-        
-        .btn:disabled {
-            opacity: 0.6;
-            cursor: not-allowed;
-            transform: none;
-        }
-        
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 10px 25px rgba(102,126,234,0.3); }
+        .btn:disabled { opacity: 0.6; cursor: not-allowed; transform: none; }
+
         .alert {
-            margin-top: 16px;
-            padding: 12px 16px;
-            border-radius: 10px;
-            font-size: 14px;
-            display: none;
+            margin-top: 14px; padding: 11px 15px; border-radius: 10px;
+            font-size: 13px; display: none;
         }
-        
-        .alert.error {
-            background: rgba(239, 68, 68, 0.1);
-            color: #dc2626;
-            border: 1px solid rgba(239, 68, 68, 0.2);
-        }
-        
-        .alert.success {
-            background: rgba(34, 197, 94, 0.1);
-            color: #16a34a;
-            border: 1px solid rgba(34, 197, 94, 0.2);
-        }
-        
-        .links {
-            margin-top: 24px;
-            text-align: center;
-        }
-        
-        .links a {
-            color: #667eea;
-            text-decoration: none;
-            font-size: 14px;
-            font-weight: 500;
-        }
+        .alert.error   { background: rgba(239,68,68,0.1);  color: #dc2626; border: 1px solid rgba(239,68,68,0.2); }
+        .alert.success { background: rgba(34,197,94,0.1);  color: #16a34a; border: 1px solid rgba(34,197,94,0.2); }
+
+        .links { margin-top: 20px; text-align: center; }
+        .links a { color: #667eea; text-decoration: none; font-size: 13px; font-weight: 500; }
     </style>
 </head>
 <body>
-    <div class="admin-container">
-        <div class="logo">
-            <h1>🔐 Admin Panel</h1>
-            <p>Signal Generator Control</p>
-        </div>
-        
-        <div style="text-align: center;">
-            <div id="statusBadge" class="status-badge offline">
-                <span class="status-dot"></span>
-                System Offline
-            </div>
-        </div>
-        
-        <form id="loginForm">
-            <div class="input-group">
-                <label>Quotex Email</label>
-                <input type="email" id="email" placeholder="admin@quotex.com" required>
-            </div>
-            
-            <div class="input-group">
-                <label>Quotex Password</label>
-                <input type="password" id="password" placeholder="••••••••" required>
-            </div>
-            
-            <button type="submit" class="btn" id="loginBtn">
-                Connect to Quotex
-            </button>
-        </form>
-        
-        <div id="alert" class="alert"></div>
-        
-        <div class="links">
-            <a href="/">← Back to Dashboard</a>
+<div class="admin-container">
+
+    <div class="logo">
+        <h1>🔐 Admin Panel</h1>
+        <p>Signal Generator Control</p>
+    </div>
+
+    <div class="status-row">
+        <div id="statusBadge" class="status-badge offline">
+            <span class="status-dot"></span>System Offline
         </div>
     </div>
 
-    <script>
-        async function checkStatus() {
-            try {
-                const res = await fetch('/api/admin/status');
-                const data = await res.json();
-                
-                const badge = document.getElementById('statusBadge');
-                if (data.connected) {
-                    badge.className = 'status-badge online';
-                    badge.innerHTML = '<span class="status-dot"></span>System Online';
-                } else {
-                    badge.className = 'status-badge offline';
-                    badge.innerHTML = '<span class="status-dot"></span>System Offline';
-                }
-            } catch (err) {
-                console.error(err);
-            }
-        }
-        
-        checkStatus();
-        setInterval(checkStatus, 5000);
-        
-        document.getElementById('loginForm').addEventListener('submit', async (e) => {
-            e.preventDefault();
-            
-            const btn = document.getElementById('loginBtn');
-            const alert = document.getElementById('alert');
-            
-            btn.disabled = true;
-            btn.textContent = 'Connecting...';
-            alert.style.display = 'none';
-            
-            const email = document.getElementById('email').value;
-            const password = document.getElementById('password').value;
-            
-            try {
-                const res = await fetch('/api/admin/login', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({email, password})
-                });
-                
-                const data = await res.json();
-                
-                if (data.success) {
-                    alert.className = 'alert success';
-                    alert.textContent = '✓ Connected! Redirecting...';
-                    alert.style.display = 'block';
-                    
-                    setTimeout(() => {
-                        window.location.href = '/';
-                    }, 1500);
-                } else {
-                    alert.className = 'alert error';
-                    alert.textContent = '✗ ' + data.message;
-                    alert.style.display = 'block';
-                    
-                    btn.disabled = false;
-                    btn.textContent = 'Connect to Quotex';
-                }
-            } catch (err) {
-                alert.className = 'alert error';
-                alert.textContent = '✗ Connection error';
-                alert.style.display = 'block';
-                
-                btn.disabled = false;
-                btn.textContent = 'Connect to Quotex';
-            }
+    <!-- TABS -->
+    <div class="tabs">
+        <button class="tab active" onclick="switchTab('ssid')">🔑 SSID Login (Server)</button>
+        <button class="tab" onclick="switchTab('pass')">🔒 Email / Password</button>
+    </div>
+
+    <!-- SSID PANEL -->
+    <div id="panel-ssid" class="panel active">
+        <div class="hint">
+            <strong>📋 How to get your SSID token:</strong>
+            1. Open <strong>qxbroker.com</strong> in Chrome and log in<br>
+            2. Press <code>F12</code> → Application → Cookies → <code>qxbroker.com</code><br>
+            3. Find the cookie named <code>token</code> and copy its value<br>
+            4. Paste it below — works even when email/password login is blocked
+        </div>
+        <div class="input-group">
+            <label>Quotex Token (from cookie)</label>
+            <textarea id="ssid" placeholder="Paste your token here..."></textarea>
+        </div>
+        <button class="btn" id="ssidBtn" onclick="loginWithSSID()">Connect with Token</button>
+    </div>
+
+    <!-- PASSWORD PANEL -->
+    <div id="panel-pass" class="panel">
+        <div class="hint" style="background:#fff7ed;border-color:#fed7aa;color:#92400e;">
+            <strong>⚠️ May fail on cloud servers</strong>
+            Quotex blocks datacenter IPs. Use SSID tab if this fails.
+        </div>
+        <div class="input-group">
+            <label>Quotex Email</label>
+            <input type="email" id="email" placeholder="admin@quotex.com">
+        </div>
+        <div class="input-group">
+            <label>Quotex Password</label>
+            <input type="password" id="password" placeholder="••••••••">
+        </div>
+        <button class="btn" id="passBtn" onclick="loginWithPassword()">Connect to Quotex</button>
+    </div>
+
+    <div id="alert" class="alert"></div>
+
+    <div class="links"><a href="/">← Back to Dashboard</a></div>
+</div>
+
+<script>
+    // ── Tab switching ──
+    function switchTab(tab) {
+        document.querySelectorAll('.tab').forEach((t, i) => {
+            t.classList.toggle('active', (i === 0 && tab === 'ssid') || (i === 1 && tab === 'pass'));
         });
-    </script>
+        document.getElementById('panel-ssid').classList.toggle('active', tab === 'ssid');
+        document.getElementById('panel-pass').classList.toggle('active', tab === 'pass');
+        document.getElementById('alert').style.display = 'none';
+    }
+
+    // ── Status polling ──
+    async function checkStatus() {
+        try {
+            const res  = await fetch('/api/admin/status');
+            const data = await res.json();
+            const badge = document.getElementById('statusBadge');
+            if (data.connected) {
+                badge.className = 'status-badge online';
+                badge.innerHTML = '<span class="status-dot"></span>System Online';
+            } else {
+                badge.className = 'status-badge offline';
+                badge.innerHTML = '<span class="status-dot"></span>System Offline';
+            }
+        } catch(e) {}
+    }
+    checkStatus();
+    setInterval(checkStatus, 5000);
+
+    // ── Shared response handler ──
+    function handleResponse(data, btn, originalText) {
+        const alertEl = document.getElementById('alert');
+        if (data.success) {
+            alertEl.className = 'alert success';
+            alertEl.textContent = '✓ Connected! Redirecting...';
+            alertEl.style.display = 'block';
+            setTimeout(() => window.location.href = '/', 1500);
+        } else {
+            alertEl.className = 'alert error';
+            alertEl.textContent = '✗ ' + data.message;
+            alertEl.style.display = 'block';
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
+    }
+
+    // ── SSID Login ──
+    async function loginWithSSID() {
+        const btn   = document.getElementById('ssidBtn');
+        const ssid  = document.getElementById('ssid').value.trim();
+        const alertEl = document.getElementById('alert');
+
+        if (!ssid) {
+            alertEl.className = 'alert error';
+            alertEl.textContent = '✗ Please paste your token first';
+            alertEl.style.display = 'block';
+            return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = 'Connecting...';
+        alertEl.style.display = 'none';
+
+        try {
+            const res  = await fetch('/api/admin/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ ssid })
+            });
+            handleResponse(await res.json(), btn, 'Connect with Token');
+        } catch(e) {
+            alertEl.className = 'alert error';
+            alertEl.textContent = '✗ Network error';
+            alertEl.style.display = 'block';
+            btn.disabled = false;
+            btn.textContent = 'Connect with Token';
+        }
+    }
+
+    // ── Password Login ──
+    async function loginWithPassword() {
+        const btn      = document.getElementById('passBtn');
+        const email    = document.getElementById('email').value.trim();
+        const password = document.getElementById('password').value.trim();
+        const alertEl  = document.getElementById('alert');
+
+        if (!email || !password) {
+            alertEl.className = 'alert error';
+            alertEl.textContent = '✗ Email and password required';
+            alertEl.style.display = 'block';
+            return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = 'Connecting...';
+        alertEl.style.display = 'none';
+
+        try {
+            const res  = await fetch('/api/admin/login', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ email, password })
+            });
+            handleResponse(await res.json(), btn, 'Connect to Quotex');
+        } catch(e) {
+            alertEl.className = 'alert error';
+            alertEl.textContent = '✗ Network error';
+            alertEl.style.display = 'block';
+            btn.disabled = false;
+            btn.textContent = 'Connect to Quotex';
+        }
+    }
+</script>
 </body>
 </html>
