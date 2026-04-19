@@ -1,5 +1,6 @@
 """
 PREMIUM SIGNAL GENERATOR - RENDER DEPLOYMENT
+With proxy rotation to bypass Quotex datacenter IP block
 """
 
 from flask import Flask, render_template, request, jsonify, session
@@ -7,6 +8,7 @@ from flask_cors import CORS
 import secrets
 import time
 import os
+import json
 import traceback
 import asyncio
 from market_analyzer import MarketAnalyzer
@@ -19,22 +21,45 @@ CORS(app)
 app.config['JSON_SORT_KEYS'] = False
 app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False
 
-# Writable path on Render for pyquotex session files
+# Writable path on Render
 ROOT_PATH = "/tmp/quotex"
 os.makedirs(ROOT_PATH, exist_ok=True)
 os.makedirs(os.path.join(ROOT_PATH, "browser"), exist_ok=True)
+os.makedirs(os.path.join(ROOT_PATH, "settings"), exist_ok=True)
 
-# Write config.ini so pyquotex NEVER calls input() asking for credentials
-SETTINGS_PATH = os.path.join(ROOT_PATH, "settings")
-os.makedirs(SETTINGS_PATH, exist_ok=True)
-with open(os.path.join(SETTINGS_PATH, "config.ini"), "w") as _f:
+# Prevent pyquotex from calling input() on a server
+with open(os.path.join(ROOT_PATH, "settings", "config.ini"), "w") as _f:
     _f.write("[settings]\nemail=placeholder@email.com\npassword=placeholder\n")
 
+# Write session.json from env variable if present
+QUOTEX_SESSION = os.environ.get("QUOTEX_SESSION")
+if QUOTEX_SESSION:
+    with open(os.path.join(ROOT_PATH, "session.json"), "w") as _f:
+        _f.write(QUOTEX_SESSION)
+    print("Session file written from environment variable")
+
+# ─────────────────────────────────────────────────────────────
+# PROXY LIST — all 10 Webshare proxies with auto-rotation
+# Format: (host, port, username, password)
+# ─────────────────────────────────────────────────────────────
+PROXIES = [
+    ("31.59.20.176",      6754, "gixtiejj", "x7n4hi71ksvo"),
+    ("198.23.239.134",    6540, "gixtiejj", "x7n4hi71ksvo"),
+    ("45.38.107.97",      6014, "gixtiejj", "x7n4hi71ksvo"),
+    ("107.172.163.27",    6543, "gixtiejj", "x7n4hi71ksvo"),
+    ("198.105.121.200",   6462, "gixtiejj", "x7n4hi71ksvo"),
+    ("216.10.27.159",     6837, "gixtiejj", "x7n4hi71ksvo"),
+    ("142.111.67.146",    5611, "gixtiejj", "x7n4hi71ksvo"),
+    ("191.96.254.138",    6185, "gixtiejj", "x7n4hi71ksvo"),
+    ("31.58.9.4",         6077, "gixtiejj", "x7n4hi71ksvo"),
+    ("23.26.71.145",      5628, "gixtiejj", "x7n4hi71ksvo"),
+]
+
 # Global state
-quotex_client  = None
-analyzer       = None
-is_connected   = False
-cached_pairs   = []
+quotex_client   = None
+analyzer        = None
+is_connected    = False
+cached_pairs    = []
 last_cache_time = 0
 
 
@@ -75,7 +100,6 @@ def server_error(e):
 def admin_panel():
     return render_template('admin.html')
 
-
 @app.route('/')
 def dashboard():
     if not is_connected:
@@ -88,59 +112,80 @@ def admin_login():
     global quotex_client, analyzer, is_connected
 
     data     = request.json or {}
-    ssid     = data.get('ssid', '').strip()
     email    = data.get('email', '').strip()
     password = data.get('password', '').strip()
 
-    if not ssid and not (email and password):
-        return jsonify({"success": False, "message": "Provide token or email+password"})
+    if not email or not password:
+        return jsonify({"success": False, "message": "Email and password required"})
+
+    async def try_connect_with_proxy(host, port, user, pwd):
+        """Attempt connection through a single proxy"""
+        try:
+            proxy_url = f"http://{user}:{pwd}@{host}:{port}"
+            print(f"Trying proxy {host}:{port}...")
+
+            client = Quotex(
+                email=email,
+                password=password,
+                lang="en",
+                root_path=ROOT_PATH,
+                proxy=proxy_url
+            )
+            check, reason = await client.connect()
+            if check:
+                return client, "Connected"
+            else:
+                print(f"  Proxy {host}:{port} failed: {reason}")
+                return None, str(reason)
+        except Exception as e:
+            print(f"  Proxy {host}:{port} exception: {e}")
+            return None, str(e)
 
     async def do_connect():
         global quotex_client, analyzer, is_connected
+
+        last_error = "All proxies failed"
+
+        for (host, port, user, pwd) in PROXIES:
+            client, message = await try_connect_with_proxy(host, port, user, pwd)
+            if client:
+                quotex_client = client
+                analyzer      = MarketAnalyzer(quotex_client)
+                is_connected  = True
+                print(f"Connected via proxy {host}:{port}")
+                return True, f"Connected via {host}"
+            last_error = message
+            # Small delay before trying next proxy
+            await asyncio.sleep(1)
+
+        # Last resort: try without proxy
+        print("All proxies failed, trying direct connection...")
         try:
-            if ssid:
-                print("Connecting via SSID token...")
-                # MUST pass non-empty email+password to prevent pyquotex
-                # from calling input() via credentials() in config.py
-                client = Quotex(
-                    email="placeholder@email.com",
-                    password="placeholder",
-                    lang="en",
-                    root_path=ROOT_PATH
-                )
-                # Inject the real session token directly — skips browser login
-                client.session_data = {"token": ssid}
-            else:
-                print(f"Connecting via email/password...")
-                client = Quotex(
-                    email=email,
-                    password=password,
-                    lang="en",
-                    root_path=ROOT_PATH
-                )
-
+            client = Quotex(
+                email=email,
+                password=password,
+                lang="en",
+                root_path=ROOT_PATH
+            )
             check, reason = await client.connect()
-
             if check:
                 quotex_client = client
                 analyzer      = MarketAnalyzer(quotex_client)
                 is_connected  = True
-                print("Connected successfully!")
+                print("Connected directly (no proxy)")
                 return True, "Connected"
-            else:
-                print(f"Connection failed: {reason}")
-                return False, str(reason)
-
+            last_error = str(reason)
         except Exception as e:
-            print(f"Exception during connect: {e}")
-            traceback.print_exc()
-            return False, str(e)
+            last_error = str(e)
+
+        print(f"All connection attempts failed. Last error: {last_error}")
+        return False, last_error
 
     try:
         success, message = run_async(do_connect())
         if success:
             session['admin'] = True
-            return jsonify({"success": True, "message": "Connected"})
+            return jsonify({"success": True, "message": message})
         return jsonify({"success": False, "message": message})
     except Exception as e:
         traceback.print_exc()
@@ -206,10 +251,10 @@ def get_pairs():
             if not display_name:
                 display_name = str(asset_code)
 
-            is_otc     = '(OTC)' in display_name or '_otc' in str(asset_code).lower()
-            a_up       = str(asset_code).upper()
-            d_up       = display_name.upper()
-            category   = "Currency"
+            is_otc   = '(OTC)' in display_name or '_otc' in str(asset_code).lower()
+            a_up     = str(asset_code).upper()
+            d_up     = display_name.upper()
+            category = "Currency"
 
             if any(x in a_up or x in d_up for x in [
                 'BTC','ETH','LTC','XRP','DOGE','ADA','DOT','LINK','UNI',
