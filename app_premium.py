@@ -1,6 +1,6 @@
 """
-PREMIUM SIGNAL GENERATOR - RENDER DEPLOYMENT
-Proxy via environment variable — websockets picks it up automatically
+PREMIUM SIGNAL GENERATOR
+Fixed: duplicate pairs, real pair payout matching, deduplication
 """
 
 from flask import Flask, render_template, request, jsonify, session
@@ -20,42 +20,9 @@ CORS(app)
 app.config['JSON_SORT_KEYS'] = False
 app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False
 
-# Writable path on Render
-ROOT_PATH = "/tmp/quotex"
+ROOT_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "settings")
 os.makedirs(ROOT_PATH, exist_ok=True)
-os.makedirs(os.path.join(ROOT_PATH, "browser"), exist_ok=True)
-os.makedirs(os.path.join(ROOT_PATH, "settings"), exist_ok=True)
 
-# Prevent pyquotex from calling input() on a server
-with open(os.path.join(ROOT_PATH, "settings", "config.ini"), "w") as _f:
-    _f.write("[settings]\nemail=placeholder@email.com\npassword=placeholder\n")
-
-# Write session.json from env variable if present
-QUOTEX_SESSION = os.environ.get("QUOTEX_SESSION")
-if QUOTEX_SESSION:
-    with open(os.path.join(ROOT_PATH, "session.json"), "w") as _f:
-        _f.write(QUOTEX_SESSION)
-    print("Session file written from environment variable")
-
-# ─────────────────────────────────────────────────────────────
-# PROXY LIST
-# websockets library reads HTTPS_PROXY / WSS_PROXY env vars
-# automatically — no code change needed in pyquotex
-# ─────────────────────────────────────────────────────────────
-PROXIES = [
-    "http://gixtiejj:x7n4hi71ksvo@31.59.20.176:6754",
-    "http://gixtiejj:x7n4hi71ksvo@198.23.239.134:6540",
-    "http://gixtiejj:x7n4hi71ksvo@45.38.107.97:6014",
-    "http://gixtiejj:x7n4hi71ksvo@107.172.163.27:6543",
-    "http://gixtiejj:x7n4hi71ksvo@198.105.121.200:6462",
-    "http://gixtiejj:x7n4hi71ksvo@216.10.27.159:6837",
-    "http://gixtiejj:x7n4hi71ksvo@142.111.67.146:5611",
-    "http://gixtiejj:x7n4hi71ksvo@191.96.254.138:6185",
-    "http://gixtiejj:x7n4hi71ksvo@31.58.9.4:6077",
-    "http://gixtiejj:x7n4hi71ksvo@23.26.71.145:5628",
-]
-
-# Global state
 quotex_client   = None
 analyzer        = None
 is_connected    = False
@@ -76,19 +43,13 @@ def run_async(coro):
 
 
 @app.after_request
-def add_security_headers(response):
+def add_headers(response):
     response.headers['X-Content-Type-Options'] = 'nosniff'
-    response.headers['X-Frame-Options']        = 'SAMEORIGIN'
-    response.headers['X-XSS-Protection']       = '1; mode=block'
     return response
 
 @app.errorhandler(404)
 def not_found(e):
-    return jsonify({"error": "Endpoint not found"}), 404
-
-@app.errorhandler(500)
-def server_error(e):
-    return jsonify({"error": "Internal server error"}), 500
+    return jsonify({"error": "Not found"}), 404
 
 
 # ─────────────────────────────────────────────────────────────
@@ -109,93 +70,32 @@ def dashboard():
 @app.route('/api/admin/login', methods=['POST'])
 def admin_login():
     global quotex_client, analyzer, is_connected
-
     data     = request.json or {}
     email    = data.get('email', '').strip()
     password = data.get('password', '').strip()
-
     if not email or not password:
         return jsonify({"success": False, "message": "Email and password required"})
 
-    async def try_proxy(proxy_url):
-        """Set proxy env vars, attempt connection, return (client, message)"""
-        try:
-            # websockets library reads these env vars automatically
-            os.environ['HTTPS_PROXY'] = proxy_url
-            os.environ['WSS_PROXY']   = proxy_url
-            os.environ['HTTP_PROXY']  = proxy_url
-
-            client = Quotex(
-                email=email,
-                password=password,
-                lang="en",
-                root_path=ROOT_PATH
-            )
-            check, reason = await client.connect()
-
-            if check:
-                return client, "Connected"
-            else:
-                return None, str(reason)
-
-        except Exception as e:
-            return None, str(e)
-        finally:
-            # Always clean up env vars after attempt
-            os.environ.pop('HTTPS_PROXY', None)
-            os.environ.pop('WSS_PROXY',   None)
-            os.environ.pop('HTTP_PROXY',  None)
-
     async def do_connect():
         global quotex_client, analyzer, is_connected
-
-        last_error = "All proxies failed"
-
-        for proxy_url in PROXIES:
-            host = proxy_url.split('@')[1]
-            print(f"Trying proxy {host}...")
-            client, message = await try_proxy(proxy_url)
-            if client:
-                quotex_client = client
-                analyzer      = MarketAnalyzer(quotex_client)
-                is_connected  = True
-                print(f"✅ Connected via {host}")
-                return True, f"Connected via proxy"
-            print(f"  Failed: {message}")
-            last_error = message
-            await asyncio.sleep(0.5)
-
-        # Final attempt: no proxy
-        print("All proxies failed — trying direct...")
         try:
-            client = Quotex(
-                email=email,
-                password=password,
-                lang="en",
-                root_path=ROOT_PATH
-            )
+            client = Quotex(email=email, password=password, lang="en", root_path=ROOT_PATH)
             check, reason = await client.connect()
             if check:
                 quotex_client = client
                 analyzer      = MarketAnalyzer(quotex_client)
                 is_connected  = True
-                print("Connected directly")
                 return True, "Connected"
-            last_error = str(reason)
+            return False, str(reason)
         except Exception as e:
-            last_error = str(e)
+            traceback.print_exc()
+            return False, str(e)
 
-        return False, last_error
-
-    try:
-        success, message = run_async(do_connect())
-        if success:
-            session['admin'] = True
-            return jsonify({"success": True, "message": message})
-        return jsonify({"success": False, "message": message})
-    except Exception as e:
-        traceback.print_exc()
-        return jsonify({"success": False, "message": f"Server error: {str(e)}"})
+    success, message = run_async(do_connect())
+    if success:
+        session['admin'] = True
+        return jsonify({"success": True, "message": message})
+    return jsonify({"success": False, "message": message})
 
 
 @app.route('/api/admin/status', methods=['GET'])
@@ -206,86 +106,117 @@ def admin_status():
 @app.route('/api/admin/logout', methods=['POST'])
 def admin_logout():
     global quotex_client, analyzer, is_connected
-    is_connected  = False
-    quotex_client = None
-    analyzer      = None
+    is_connected = False; quotex_client = None; analyzer = None
     session.clear()
     return jsonify({"success": True})
 
 
+@app.route('/api/system/status', methods=['GET'])
+def system_status():
+    return jsonify({"online": is_connected})
+
+
 # ─────────────────────────────────────────────────────────────
-# TRADING PAIRS
+# PAIRS — fixed deduplication + payout matching
 # ─────────────────────────────────────────────────────────────
 
 @app.route('/api/pairs', methods=['GET'])
 def get_pairs():
     global cached_pairs, last_cache_time
-
     if not is_connected or not quotex_client:
         return jsonify({"error": "System offline"}), 503
-
     if cached_pairs and (time.time() - last_cache_time) < 300:
         return jsonify({"pairs": cached_pairs})
 
-    async def fetch_pairs():
+    async def fetch():
         all_assets   = await quotex_client.get_all_assets()
         payment_data = quotex_client.get_payment()
-        pairs = []
 
-        for asset_code, _ in all_assets.items():
+        # ── DEBUG: print a sample to understand real data structure ──
+        sample_keys = list(payment_data.keys())[:5]
+        print(f"Sample payment keys: {sample_keys}")
+        for k in sample_keys:
+            print(f"  {k}: {payment_data[k]}")
+
+        # ── Build payment lookup: cleaned_key → (display_name, pay_info) ──
+        payment_lookup = {}
+        for pay_name, pay_info in payment_data.items():
+            if not isinstance(pay_info, dict):
+                continue
+            # Store under multiple cleaned variants for better matching
+            clean = pay_name.replace('(OTC)', '').replace(' ', '').replace('/', '').replace('-', '').strip().upper()
+            payment_lookup[clean] = (pay_name, pay_info)
+
+        pairs_dict = {}  # keyed by base_code to deduplicate
+
+        for asset_code, asset_info in all_assets.items():
+            asset_str   = str(asset_code)
+            is_otc_code = '_otc' in asset_str.lower()
+
+            # Base code without _otc suffix
+            base_code = asset_str.replace('_otc', '').replace('_OTC', '').upper()
+
+            # ── Match payment data ──
             display_name = None
-            payout  = 0
-            is_open = False
+            payout       = 0.0
+            is_open      = False
 
-            for pay_name, pay_info in payment_data.items():
-                if not isinstance(pay_info, dict):
-                    continue
-                pay_clean   = pay_name.replace('(OTC)','').replace(' ','').replace('/','').upper()
-                asset_clean = str(asset_code).replace('_otc','').replace('_OTC','').upper()
-                if pay_clean in asset_clean or asset_clean in pay_clean:
-                    display_name = pay_name
-                    is_open      = pay_info.get('open', False)
-                    turbo        = pay_info.get('turbo_payment', 0)
-                    if turbo and turbo > 0:
-                        payout = float(turbo)
-                    else:
-                        profit = pay_info.get('profit', {})
-                        if isinstance(profit, dict):
-                            payout = float(profit.get('1M', 0))
+            # Try multiple clean variants
+            for variant in [
+                base_code,
+                base_code.replace('_', ''),
+                asset_str.upper().replace('_OTC', '').replace('_', ''),
+            ]:
+                if variant in payment_lookup:
+                    display_name, pay_info = payment_lookup[variant]
+                    is_open = pay_info.get('open', False)
+                    payout  = _extract_payout(pay_info)
                     break
 
+            # Fuzzy fallback
             if not display_name:
-                display_name = str(asset_code)
+                for clean_key, (pay_name, pay_info) in payment_lookup.items():
+                    if clean_key in base_code or base_code in clean_key:
+                        display_name = pay_name
+                        is_open      = pay_info.get('open', False)
+                        payout       = _extract_payout(pay_info)
+                        break
 
-            is_otc   = '(OTC)' in display_name or '_otc' in str(asset_code).lower()
-            a_up     = str(asset_code).upper()
-            d_up     = display_name.upper()
-            category = "Currency"
+            if not display_name:
+                display_name = asset_str
 
-            if any(x in a_up or x in d_up for x in [
-                'BTC','ETH','LTC','XRP','DOGE','ADA','DOT','LINK','UNI',
-                'SOL','MATIC','SHIB','AVAX','ATOM','CHAIN','TON','APT','COSMOS']):
-                category = "Crypto"
-            elif any(x in a_up or x in d_up for x in [
-                'GOLD','SILVER','OIL','GAS','CRUDE','BRENT','COPPER','PLATINUM','NATURAL']):
-                category = "Commodities"
-            elif any(x in a_up or x in d_up for x in [
-                'AAPL','GOOGL','GOOGLE','TSLA','TESLA','MSFT','MICROSOFT','AMZN',
-                'AMAZON','META','FACEBOOK','NFLX','NETFLIX','NVDA','NVIDIA',
-                'AMD','INTEL','COCA','MCDONALDS','MCD','NIKE','DISNEY']):
-                category = "Stocks"
+            # ── Fix display name for OTC ──
+            if is_otc_code and '(OTC)' not in display_name:
+                display_name = display_name.rstrip() + ' (OTC)'
 
-            pairs.append({
-                "code": str(asset_code), "name": display_name,
-                "payout": payout, "is_open": is_open,
-                "is_otc": is_otc, "category": category
-            })
+            # ── Deduplication: prefer OTC version ──
+            if base_code in pairs_dict:
+                existing = pairs_dict[base_code]
+                # Only replace if this is OTC and existing is not, or if better payout
+                if is_otc_code and not existing['is_otc']:
+                    pass  # replace with OTC version below
+                elif payout <= existing['payout']:
+                    continue  # keep existing
 
+            pairs_dict[base_code] = {
+                "code":     asset_str,
+                "name":     display_name,
+                "payout":   round(payout, 1),
+                "is_open":  is_open,
+                "is_otc":   is_otc_code,
+                "category": _categorize(asset_str, display_name),
+            }
+
+        pairs = list(pairs_dict.values())
+        # Filter out 0.0% pairs that have no display name match (junk assets)
+        pairs = [p for p in pairs if p['payout'] > 0 or any(
+            c.isalpha() for c in p['name'].replace('(OTC)', '').strip()
+        )]
         pairs.sort(key=lambda x: x['payout'], reverse=True)
         return pairs
 
     try:
-        pairs           = run_async(fetch_pairs())
+        pairs = run_async(fetch())
         cached_pairs    = pairs
         last_cache_time = time.time()
         print(f"Loaded {len(pairs)} pairs")
@@ -293,6 +224,45 @@ def get_pairs():
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
+
+
+def _extract_payout(pay_info: dict) -> float:
+    """Extract payout percentage from payment info dict"""
+    # Try turbo_payment first
+    turbo = pay_info.get('turbo_payment') or pay_info.get('turboPayment') or 0
+    if turbo and float(turbo) > 0:
+        v = float(turbo)
+        return v if v > 1 else v * 100
+
+    # Try profit dict
+    profit = pay_info.get('profit') or {}
+    if isinstance(profit, dict):
+        for key in ['1M', '1m', '60', 'M1', 'm1']:
+            val = profit.get(key)
+            if val:
+                v = float(val)
+                return v if v > 1 else v * 100
+
+    # Try direct percentage fields
+    for key in ['payment', 'percent', 'payout', 'profit_percent']:
+        val = pay_info.get(key)
+        if val:
+            v = float(val)
+            return v if v > 1 else v * 100
+
+    return 0.0
+
+
+def _categorize(asset_code: str, display_name: str) -> str:
+    a = asset_code.upper()
+    d = display_name.upper()
+    if any(x in a or x in d for x in ['BTC','ETH','LTC','XRP','DOGE','ADA','DOT','LINK','UNI','SOL','MATIC','SHIB','AVAX','ATOM','TON','APT']):
+        return "Crypto"
+    if any(x in a or x in d for x in ['GOLD','SILVER','OIL','GAS','CRUDE','BRENT','COPPER','PLATINUM','NATURAL']):
+        return "Commodities"
+    if any(x in a or x in d for x in ['AAPL','GOOGL','TSLA','MSFT','AMZN','META','NFLX','NVDA','AMD','INTEL','NIKE','DISNEY']):
+        return "Stocks"
+    return "Currency"
 
 
 # ─────────────────────────────────────────────────────────────
@@ -314,20 +284,54 @@ def analyze_asset(asset_identifier):
         return await analyzer.get_comprehensive_analysis(asset_code)
 
     try:
-        print(f"Analyzing {asset_identifier}...")
         analysis = run_async(do_analysis())
         if "error" in analysis:
             return jsonify({"error": analysis["error"]}), 400
-        print("Analysis complete")
         return jsonify(analysis)
     except Exception as e:
         traceback.print_exc()
         return jsonify({"error": str(e)}), 500
 
 
+@app.route('/api/candles', methods=['GET'])
+def get_candles():
+    if not is_connected or not quotex_client:
+        return jsonify({"error": "System offline"}), 503
+    asset = request.args.get('asset', 'EURUSD_otc')
+
+    async def fetch_candles():
+        raw = await quotex_client.get_candles(asset, time.time(), 6000, 60)
+        if not raw:
+            return []
+        result = []
+        for c in raw[-50:]:
+            o = float(c.get('open')  or c.get('o') or 0)
+            cl= float(c.get('close') or c.get('c') or 0)
+            h = float(c.get('high')  or c.get('h') or cl)
+            l = float(c.get('low')   or c.get('l') or cl)
+            d = 'CALL' if cl > o else ('PUT' if cl < o else 'NEUTRAL')
+            result.append({"open":round(o,6),"close":round(cl,6),"high":round(h,6),"low":round(l,6),"direction":d})
+        return result
+
+    try:
+        data = run_async(fetch_candles())
+        return jsonify(data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
+@app.route('/api/news', methods=['GET'])
+def get_news():
+    return jsonify([
+        {"title": "Markets update: Volatility continues across major pairs"},
+        {"title": "OTC markets active — momentum signals detected"},
+        {"title": "Technical analysis: Key support levels being tested"},
+    ])
+
+
 if __name__ == '__main__':
     print("="*60)
     print("PREMIUM SIGNAL GENERATOR")
-    print("Admin: http://localhost:5000/admin")
+    print("Admin : http://localhost:5000/admin")
     print("="*60)
     app.run(host='0.0.0.0', port=5000, debug=False)
