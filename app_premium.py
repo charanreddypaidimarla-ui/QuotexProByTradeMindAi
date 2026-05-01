@@ -100,8 +100,19 @@ def admin_login():
     data     = request.json or {}
     email    = data.get('email', '').strip()
     password = data.get('password', '').strip()
+    
+    if data.get('use_saved'):
+        try:
+            config = configparser.ConfigParser()
+            config.read(os.path.join(ROOT_PATH, "config.ini"))
+            if 'settings' in config:
+                email = config['settings'].get('email', '').strip()
+                password = config['settings'].get('password', '').strip()
+        except Exception as e:
+            logger.error(f"Error reading config: {e}")
+
     if not email or not password:
-        return jsonify({"success": False, "message": "Email and password required"})
+        return jsonify({"success": False, "message": "Email and password required, or configure them in config.ini"})
 
     async def do_connect():
         global quotex_client, analyzer, is_connected
@@ -392,8 +403,8 @@ if __name__ == '__main__':
             
         if url:
             print("\n" + "="*60)
-            print(f"🌍 PUBLIC URL: {url}")
-            print(f"🌍 ADMIN URL: {url}/admin")
+            print(f"[PUBLIC URL] {url}")
+            print(f"[ADMIN URL] {url}/admin")
             print("="*60 + "\n")
             try:
                 config = configparser.ConfigParser()

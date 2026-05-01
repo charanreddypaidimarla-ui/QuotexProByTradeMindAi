@@ -110,6 +110,13 @@ input{font-family:'Inter',sans-serif;outline:none}
       <div class="field"><label>Quotex Email</label><input type="email" id="qEmail" placeholder="your@email.com" autocomplete="email"></div>
       <div class="field"><label>Quotex Password</label><input type="password" id="qPass" placeholder="••••••••" autocomplete="current-password"></div>
       <button class="btn-primary" id="connectBtn" onclick="doConnect()">Connect to Quotex</button>
+      
+      <div style="text-align:center; margin:15px 0; color:var(--zinc400); font-size:12px; font-weight:600; letter-spacing:1px; text-transform:uppercase;">OR</div>
+      
+      <button class="btn-primary" id="savedLoginBtn" onclick="doSavedLogin()" style="background:var(--zinc800); color:white; border:none; box-shadow:0 4px 12px rgba(0,0,0,0.1)">
+        <span style="display:inline-block; margin-right:8px">⚡</span> Quick Login (Saved Account)
+      </button>
+
       <div class="alert" id="connectAlert"></div>
     </div>
 
@@ -193,6 +200,30 @@ function startOtpPolling(){
 
 function stopOtpPolling(){
   if(otpPolling){clearInterval(otpPolling);otpPolling=null;}
+}
+
+async function doSavedLogin(){
+  const btn=document.getElementById('savedLoginBtn');
+  const al=document.getElementById('connectAlert');
+  btn.disabled=true;btn.innerHTML='<span class="spinner"></span>Connecting...';
+  al.className='alert info';al.textContent='Connecting using saved account — if OTP is required, a PIN input will appear...';al.style.display='block';
+
+  startOtpPolling();
+
+  try{
+    const res=await fetch('/api/admin/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({use_saved:true})});
+    const d=await res.json();
+    stopOtpPolling();
+    if(d.success){
+      al.className='alert success';al.textContent='Connected! Quotex is live.';
+      checkStatus();toast('Connected to Quotex','success');
+      setTimeout(()=>switchTab('status'),1500);
+    }else{
+      switchTab('connect');
+      al.className='alert error';al.textContent=''+d.message;
+    }
+  }catch(e){stopOtpPolling();al.className='alert error';al.textContent='Network error. Try again.';}
+  btn.disabled=false;btn.innerHTML='<span style="display:inline-block; margin-right:8px">⚡</span> Quick Login (Saved Account)';
 }
 
 async function doConnect(){
