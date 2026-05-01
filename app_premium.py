@@ -114,10 +114,10 @@ def admin_login():
     if not email or not password:
         return jsonify({"success": False, "message": "Email and password required, or configure them in config.ini"})
 
-    async def do_connect():
+    async def do_connect(login_email, login_password):
         global quotex_client, analyzer, is_connected
         try:
-            client = Quotex(email=email, password=password, lang="en", root_path=ROOT_PATH)
+            client = Quotex(email=login_email, password=login_password, lang="en", root_path=ROOT_PATH)
             check, reason = await client.connect()
             if check:
                 quotex_client = client
@@ -132,7 +132,7 @@ def admin_login():
             return False, str(e)
 
     try:
-        success, message = run_async(do_connect(), timeout=300)
+        success, message = run_async(do_connect(email, password), timeout=300)
     except Exception as e:
         traceback.print_exc()
         return jsonify({"success": False, "message": str(e)})
